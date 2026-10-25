@@ -34,7 +34,7 @@ omarchy plugin add https://github.com/elliotalien/tide --enable
 ~/.config/omarchy/plugins/io.github.elliotalien.tide/install.sh
 ```
 
-The installer validates both manifests, places **Tide** and **Tide Lyrics** in your bar and disables the stock `omarchy.media` widget so the two services don't compete.
+The installer validates both manifests, places **Tide** and **Tide Lyrics** in your bar, installs the `omarchy-flow` terminal helper and disables the stock `omarchy.media` widget so the two services don't compete.
 
 ## 🎛 Usage
 
@@ -46,6 +46,18 @@ The installer validates both manifests, places **Tide** and **Tide Lyrics** in y
 | **Scroll** | Previous / next track |
 
 The popup carries artwork, a click-to-seek waveform, transport buttons, a hover volume vial and one tile per detected source. The lyrics button opens **Tide Lyrics** beside it.
+
+### Terminal
+
+Change the visualizer without touching a file — the helper talks to the running shell over IPC, so it applies instantly and persists:
+
+```bash
+omarchy-flow                  # show the current mode and text setting
+omarchy-flow bars             # wave | bars | dots | particles | pulse
+omarchy-flow text off         # hide the track text, leave only the wave
+```
+
+`sparks` is accepted as an alias for `particles`.
 
 ## ⚙️ Configuration
 
@@ -78,12 +90,20 @@ Both settings live in this widget's entry in `~/.config/omarchy/shell.json` and 
 | `sourceSwitch` · `sourceSwitchPrevious` | Cycle sources and move playback with them |
 | `volumeUp` · `volumeDown` · `setVolume <0-1>` · `toggleMute` | Per-app volume |
 
-**Visualizer** — `qs -p /usr/share/omarchy/shell ipc call flow <command>`:
+**Visualizer** — `omarchy-flow <command>`:
 
 | Command | Description |
 |---|---|
-| `getMode` · `setMode <mode>` | Read or change the visualizer mode |
-| `getShowText` · `setShowText <on\|off>` | Read or change bar text |
+| `omarchy-flow` | Show the current mode and text setting |
+| `omarchy-flow wave` · `bars` · `dots` · `particles` · `pulse` | Set the visualizer mode |
+| `omarchy-flow text on\|off` | Show or hide the track text |
+
+The helper is a thin wrapper around the shell's own IPC target, if you'd rather call it directly:
+
+```bash
+qs -p /usr/share/omarchy/shell ipc call flow setMode bars
+qs -p /usr/share/omarchy/shell ipc call flow getMode
+```
 
 ## 🧩 How the audio level works
 
@@ -97,6 +117,7 @@ io.github.elliotalien.tide/
 ├── Service.qml            MPRIS + PipeWire service (single source of truth)
 ├── MediaModel.js          pure helpers: matching, cleaning, artwork, lyrics queries
 ├── manifest.json          plugin manifest (service + bar widget)
+├── bin/omarchy-flow       terminal helper for changing the visualizer
 ├── lyrics-mic.svg         lyrics button glyph
 ├── install.sh             installer, also drops the lyrics companion
 ├── update.sh              in-place update for git installs

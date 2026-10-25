@@ -132,13 +132,24 @@ if command -v mpv >/dev/null 2>&1; then
     done
 fi
 
-# 6. Verify and update status bar layout in ~/.config/omarchy/shell.json
+# 6. Refresh the omarchy-flow terminal helper
+BIN_DIR="${HOME}/.local/bin"
+if [ -f "${SCRIPT_DIR}/bin/omarchy-flow" ]; then
+    mkdir -p "${BIN_DIR}"
+    helper_tmp=$(mktemp -p "${BIN_DIR}" ".omarchy-flow.XXXXXX")
+    cp -f "${SCRIPT_DIR}/bin/omarchy-flow" "${helper_tmp}"
+    chmod 0755 "${helper_tmp}"
+    mv -f "${helper_tmp}" "${BIN_DIR}/omarchy-flow"
+    echo -e "${BLUE}==>${NC} Updated ${BIN_DIR}/omarchy-flow"
+fi
+
+# 7. Verify and update status bar layout in ~/.config/omarchy/shell.json
 echo -e "${BLUE}==>${NC} Verifying status bar configuration in ~/.config/omarchy/shell.json..."
 PLUGIN_ID="${PLUGIN_ID}" STOCK_PLUGIN_ID="${STOCK_PLUGIN_ID}" \
 LYRICS_PLUGIN_ID="${LYRICS_PLUGIN_ID}" BAR_SECTION="${BAR_SECTION}" BAR_ANCHOR_ID="${BAR_ANCHOR_ID}" \
 python3 "${SCRIPT_DIR}/scripts/configure_bar.py" --action enable
 
-# 7. Restart Omarchy Shell to apply updates
+# 8. Restart Omarchy Shell to apply updates
 if command -v omarchy >/dev/null 2>&1; then
     echo -e "${BLUE}==>${NC} Reloading Omarchy shell with updated plugin..."
     omarchy restart shell

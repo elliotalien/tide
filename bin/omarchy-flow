@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+# omarchy-flow — change the Tide bar visualizer from the terminal.
+#
+#   omarchy-flow                 show the current mode and text setting
+#   omarchy-flow <mode>          wave | bars | dots | particles | pulse (sparks = particles)
+#   omarchy-flow text on|off     show or hide the track text in the bar capsule
+#   omarchy-flow get             print the current mode
+#
+# Talks to the running Omarchy shell over IPC, so changes apply instantly and
+# persist in ~/.config/omarchy/shell.json.
+
+set -u
+
+QS_BIN=(qs -p /usr/share/omarchy/shell)
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-flow [command]
+
+  (no command)      show current visualizer mode and text setting
+  wave|bars|dots|
+  particles|pulse   set the visualizer mode (sparks is an alias for particles)
+  text on|off       show or hide the track text in the bar capsule
+  get               print the current mode
+  help              this message
+
+The command uses the running Omarchy shell's IPC target "flow", so it applies
+immediately and is written back to ~/.config/omarchy/shell.json.
+EOF
+}
+
+call() {
+    "${QS_BIN[@]}" ipc call flow "$@" 2>/dev/null
+}
+
+status() {
+    local mode text
+    mode=$(call getMode)
+    text=$(call getShowText)
+    printf 'visualizerMode: %s\n' "${mode:-<shell not running>}"
+    printf 'showText:       %s\n' "${text:-<shell not running>}"
+}
+
+mode_of() {
+    case "$1" in
+        sparks) echo particles ;;
+        *) echo "$1" ;;
+    esac
+}
+
+cmd="${1:-}"
+case "$cmd" in
+    ""|status)
+        status
+        ;;
+    help|-h|--help)
+        usage
+        ;;
+    get)
+        call getMode
+        echo
+        ;;
+    text)
+        if [ "$#" -ge 2 ]; then
+            out=$(call setShowText "$2")
+            if [ "$out" = "ok" ]; then
+                echo "showText -> $2"
+                status
+            else
+                echo "omarchy-flow: $out (expected on or off)" >&2
+                exit 1
+            fi
+        else
+            printf 'showText: %s\n' "$(call getShowText)"
+        fi
+        ;;
+    wave|bars|dots|particles|sparks|pulse)
+        resolved=$(mode_of "$cmd")
+        out=$(call setMode "$resolved")
+        if [ "$out" = "ok" ]; then
+            echo "visualizerMode -> $resolved"
+            status
+        else
+            echo "omarchy-flow: $out" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        echo "omarchy-flow: unknown command '$cmd'" >&2
+        usage >&2
+        exit 1
+        ;;
+esac

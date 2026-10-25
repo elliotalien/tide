@@ -38,6 +38,13 @@ if [ -d "${LYRICS_DIR}" ] && [ ! -L "${LYRICS_DIR}" ]; then
     echo -e "${BLUE}==>${NC} Lyrics companion backup saved to: ${LYRICS_BACKUP_DIR}"
 fi
 
+# Remove the terminal helper installed by install.sh, but only if it is ours.
+CLI_HELPER="${HOME}/.local/bin/omarchy-flow"
+if [ -f "${CLI_HELPER}" ] && grep -q "change the Tide bar visualizer" "${CLI_HELPER}" 2>/dev/null; then
+    rm -f "${CLI_HELPER}"
+    echo -e "${BLUE}==>${NC} Removed terminal helper: ${CLI_HELPER}"
+fi
+
 # Clean up configuration in shell.json
 PLUGIN_ID="${PLUGIN_ID}" STOCK_PLUGIN_ID="${STOCK_PLUGIN_ID}" \
 LYRICS_PLUGIN_ID="${LYRICS_PLUGIN_ID}" BAR_SECTION="${BAR_SECTION}" BAR_ANCHOR_ID="${BAR_ANCHOR_ID}" \
