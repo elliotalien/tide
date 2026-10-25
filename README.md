@@ -4,10 +4,6 @@ An audio-reactive media visualizer for the [Omarchy](https://omarchy.org/) bar, 
 
 Tide is a fork of [Music Flow](https://github.com/Rajesh-bandi/music-flow) by Rajesh Bandi — itself a community derivative of [Clifford Baidoo's omarchy-music-flow](https://github.com/Clifford-Baidoo/omarchy-music-flow). The original MIT notice is retained; the UI, visualizer modes, player popup, volume control and lyrics widget were redesigned and extended here.
 
-![Tide player popup](preview.png)
-
-![Tide lyrics](synced-lyrics.png)
-
 ## Features
 
 - **Five visualizer modes** in the bar capsule — `wave`, `bars`, `dots`, `particles`, `pulse` — with amplitude driven by the active player's real PipeWire peak level.
