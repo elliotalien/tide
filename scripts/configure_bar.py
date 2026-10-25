@@ -293,6 +293,13 @@ def disable(plugin_id, lyrics_plugin_id, stock_plugin_id, section, anchor_id, co
     if stock_plugin_id in disabled:
         disabled.remove(stock_plugin_id)
 
+    # Drop the dangling clone bookkeeping entry the installer added, otherwise
+    # shell.json keeps naming a plugin that no longer exists.
+    restores = config.get("cloneSourceRestores")
+    if isinstance(restores, list):
+        while plugin_id in restores:
+            restores.remove(plugin_id)
+
     _atomic_write_json(config_path, config, mode=existing_mode)
 
 

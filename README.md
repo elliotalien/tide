@@ -36,6 +36,23 @@ omarchy plugin add https://github.com/elliotalien/tide --enable
 
 The installer validates both manifests, places **Tide** and **Tide Lyrics** in your bar, installs the `omarchy-flow` terminal helper and disables the stock `omarchy.media` widget so the two services don't compete.
 
+## 🗑 Uninstall
+
+```bash
+~/.config/omarchy/plugins/io.github.elliotalien.tide/uninstall.sh
+```
+
+What it does, in order:
+
+1. Moves both plugin folders to hidden, timestamped siblings (`.io.github.elliotalien.tide.bak.<epoch>`) instead of deleting them — your edits and git history survive.
+2. Removes `~/.local/bin/omarchy-flow`, but only if that file is Tide's helper.
+3. Removes both widgets from the bar, re-adds the stock `omarchy.media` widget, and re-enables it in `disabledPlugins`. It also drops Tide's dangling `cloneSourceRestores` entry.
+4. Restarts the shell.
+
+It deliberately leaves the artwork cache (`~/.cache/omarchy/tide/`) and the `.bak.*` plugin folders behind; delete those once you're satisfied. The stock media widget is re-inserted in the `left` section (after `omarchy.workspaces`, or appended when that anchor is missing), so you may want to move it back to where it used to sit.
+
+If you already deleted the plugin folder by hand, the same result is one edit of `~/.config/omarchy/shell.json`: remove `io.github.elliotalien.tide` and `io.github.elliotalien.tide-lyrics` from `bar.layout`, re-add `{"id": "omarchy.media"}` and drop `omarchy.media` from `disabledPlugins`.
+
 ## 🎛 Usage
 
 | Gesture | Action |
