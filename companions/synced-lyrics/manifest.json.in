@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.elliotalien.tide-lyrics",
+  "name": "Tide Lyrics",
+  "version": "1.0.0",
+  "author": "Elliot",
+  "license": "MIT",
+  "description": "Synced lyrics as an independently positioned bar widget for Tide",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Tide Lyrics",
+    "description": "Shows the current track's synced lyrics, opened from Tide",
+    "category": "Media",
+    "allowMultiple": false
+  }
+}

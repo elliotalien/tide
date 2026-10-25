@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.elliotalien.tide",
+  "name": "Tide",
+  "version": "1.0.0",
+  "author": "Elliot",
+  "license": "MIT",
+  "description": "A PipeWire-reactive bar visualizer and media controller: flowing wave modes, floating player, source switching, per-app volume, and the companion Tide Lyrics widget.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Tide",
+    "description": "Audio-reactive media visualizer with a floating player window",
+    "category": "Media",
+    "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.media"
+  }
+}

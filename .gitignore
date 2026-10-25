@@ -1,0 +1,9 @@
+CLAUDE.md
+
+# Local editor/AI backup copies
+*.bak
+*.bak.*
+
+# Python bytecode from the install/update helpers
+__pycache__/
+*.pyc
