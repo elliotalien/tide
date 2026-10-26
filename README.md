@@ -76,56 +76,6 @@ omarchy-flow text off         # hide the track text, leave only the wave
 
 `sparks` is accepted as an alias for `particles`.
 
-## ⚙️ Configuration
-
-Both settings live in this widget's entry in `~/.config/omarchy/shell.json` and can be changed live:
-
-| Key | Default | Values |
-|---|---|---|
-| `visualizerMode` | `wave` | `wave`, `bars`, `dots`, `particles`, `pulse` |
-| `showText` | `true` | `true`, `false` |
-
-```jsonc
-{
-  "id": "io.github.elliotalien.tide",
-  "visualizerMode": "wave",
-  "showText": false
-}
-```
-
-## 🔌 IPC
-
-**Media** — `omarchy-shell media <command>`:
-
-| Command | Description |
-|---|---|
-| `status` | JSON snapshot: track, artist, art URL, position, level, capabilities |
-| `sources` | Detected players with playback state and stream counts |
-| `playPause` · `play` · `pause` | Transport |
-| `next` · `previous` | Track skipping |
-| `sourceNext` · `sourcePrevious` | Cycle sources without transferring playback |
-| `sourceSwitch` · `sourceSwitchPrevious` | Cycle sources and move playback with them |
-| `volumeUp` · `volumeDown` · `setVolume <0-1>` · `toggleMute` | Per-app volume |
-
-**Visualizer** — `omarchy-flow <command>`:
-
-| Command | Description |
-|---|---|
-| `omarchy-flow` | Show the current mode and text setting |
-| `omarchy-flow wave` · `bars` · `dots` · `particles` · `pulse` | Set the visualizer mode |
-| `omarchy-flow text on\|off` | Show or hide the track text |
-
-The helper is a thin wrapper around the shell's own IPC target, if you'd rather call it directly:
-
-```bash
-qs -p /usr/share/omarchy/shell ipc call flow setMode bars
-qs -p /usr/share/omarchy/shell ipc call flow getMode
-```
-
-## 🧩 How the audio level works
-
-Tide first tries Quickshell's `PwNodePeakMonitor` on the player's own stream. Some streams (Spotify) map their channels as `Unknown`, which that monitor cannot read — it reports a flat zero and logs an error per sample. For those, Tide captures the default sink's monitor with `pw-record` and computes the peak itself, throttled to run only while a track is playing. On a Bluetooth sink that fallback is deliberately disabled, since capturing the output can force the headset out of A2DP into the mono HFP profile.
-
 ## 📦 Project layout
 
 ```
