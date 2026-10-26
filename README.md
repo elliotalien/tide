@@ -143,12 +143,6 @@ io.github.elliotalien.tide/
 └── companions/synced-lyrics/  Tide Lyrics widget + manifest template
 ```
 
-## 🙏 Credits
-
-- [Clifford Baidoo](https://github.com/Clifford-Baidoo) — original [omarchy-music-flow](https://github.com/Clifford-Baidoo/omarchy-music-flow)
-- [Rajesh Bandi](https://github.com/Rajesh-bandi) — Music Flow fork with synced lyrics
-- [elliotalien](https://github.com/elliotalien) — Tide: visual redesign, visualizer modes, player popup, volume vial, lyrics widget rework and bug fixes
-
 ## 📄 License
 
 [MIT](LICENSE) — the original copyright notices are retained.
