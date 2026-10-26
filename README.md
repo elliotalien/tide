@@ -13,6 +13,10 @@
 
 Tide lives in your bar as a small, living waveform: it breathes with the music, opens into a full player when you click it, and can hand the current track's lyrics to a second, independently positioned widget. It talks to any MPRIS player and reads real PipeWire peak levels, so the animation follows what you actually hear rather than a fixed loop.
 
+<div align="center">
+  <img src="preview.webp" alt="Tide player popup open over the Omarchy desktop, with the bar capsule showing the current track" width="860">
+</div>
+
 ## ✨ Features
 
 | | |
