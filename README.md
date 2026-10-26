@@ -40,6 +40,17 @@ omarchy plugin add https://github.com/elliotalien/tide --enable
 
 The installer validates both manifests, places **Tide** and **Tide Lyrics** in your bar, installs the `omarchy-flow` terminal helper and disables the stock `omarchy.media` widget so the two services don't compete.
 
+## 📋 Requirements
+
+| Dependency | Needed for |
+|---|---|
+| **Omarchy** with Quickshell 0.3.x | The shell plugin API Tide is built against |
+| **PipeWire** | Per-app volume and the audio-level meter |
+| `curl` | Fetching and validating cover art |
+| `python3` | Artwork validation and the `pw-record` peak fallback |
+| Network access to `lrclib.net` | The Tide Lyrics widget |
+| `mpv` *(optional)* | The installer enables mpv's MPRIS script when mpv is present |
+
 ## 🗑 Uninstall
 
 ```bash
