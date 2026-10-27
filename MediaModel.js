@@ -157,6 +157,12 @@ var APP_FAMILY_MAP = {
   "brave": ["brave", "brave-browser", "chromium"],
   "spotify": ["spotify", "spotify-launcher", "spotify-client"],
   "mpv": ["mpv", "mpv-mpris", "celluloid"],
+  // Stremio's desktop player is an mpv frontend: MPRIS identifies it as
+  // com.stremio.Stremio, while its PipeWire stream announces application.name
+  // "mpv" (owned by the Stremio client, not the mpv binary). Without this
+  // alias the stream never matches the player, so the peak monitor finds no
+  // candidates and the visualizer falls back to a flat full-level pulse.
+  "stremio": ["stremio", "mpv"],
   "vlc": ["vlc"]
 }
 
@@ -498,6 +504,8 @@ var ALLOWED_HTTPS_CDN_DOMAINS = [
   // SoundCloud
   "i1.sndcdn.com",
   "a1.sndcdn.com",
+  // Stremio / Cinemeta artwork
+  "images.metahub.space",
   // Bandcamp
   "f4.bcbits.com",
   // Last.fm
@@ -676,6 +684,17 @@ function sanitizeArtUrl(rawUrl) {
   return ""
 }
 
+// Stremio reports Metahub *logos* over MPRIS: transparent title treatments
+// built for wide backdrops. The player popup's cover is square, so it crops
+// them to an almost empty centre. The same IMDb id also has a proper Metahub
+// poster; swap to that for a real cover on movies and series.
+function preferMetahubPoster(urlString) {
+  if (typeof urlString !== "string") return urlString
+  var match = urlString.match(/^https:\/\/images\.metahub\.space\/(?:logo|background)\/(?:small|medium|large)\/(tt\d+)\/img(?:[?#].*)?$/)
+  if (!match) return urlString
+  return "https://images.metahub.space/poster/medium/" + match[1] + "/img"
+}
+
 // Robust artwork extraction with YouTube thumbnail fallback and scheme/destination validation
 function extractArtUrl(player) {
   if (!player) return ""
@@ -683,18 +702,18 @@ function extractArtUrl(player) {
   var candidate = ""
   if (player.trackArtUrl) {
     candidate = sanitizeArtUrl(player.trackArtUrl)
-    if (candidate) return candidate
+    if (candidate) return preferMetahubPoster(candidate)
   }
 
   var meta = player.metadata || {}
   if (meta["mpris:artUrl"]) {
     candidate = sanitizeArtUrl(meta["mpris:artUrl"])
-    if (candidate) return candidate
+    if (candidate) return preferMetahubPoster(candidate)
   }
 
   if (meta["xesam:artUrl"]) {
     candidate = sanitizeArtUrl(meta["xesam:artUrl"])
-    if (candidate) return candidate
+    if (candidate) return preferMetahubPoster(candidate)
   }
 
   var url = capText(meta["xesam:url"] || player.url, MAX_URL_LENGTH)

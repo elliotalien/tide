@@ -375,6 +375,19 @@ BarWidget {
     } else {
       resumeSnap = false
     }
+    // Stremio has no live Position feed, so a play/pause edge is the only cue
+    // to stop or restart the interpolation clock at the current estimate
+    // instead of adding paused wall time to the saved position. Only the open
+    // popup runs that clock; a closed one re-fetches on reopen.
+    if (root.popupOpen && root.isStremioPlayer && root.stremioState) {
+      root.stremioState = {
+        duration: root.stremioState.duration,
+        savedPosition: root.stremioState.savedPosition,
+        position: root.trackPosition,
+        savedAt: root.stremioState.savedAt
+      }
+      root.stremioAnchorMs = Date.now()
+    }
   }
 
   Timer {
@@ -389,13 +402,138 @@ BarWidget {
   }
   onCurrentEnergyChanged: waveCanvas.requestPaint()
 
+  // Stremio's MPRIS player omits mpris:length, always reports Position=0 and
+  // sets CanSeek=false (verified live). The generic path would therefore treat
+  // the player's fake length as the track length and draw a full bar with 0:00
+  // remaining. Stremio's LocalStorage does keep the real duration and a
+  // periodically saved resume position; those drive the popup timeline
+  // instead. The saved position is interpolated while playing and reseeded
+  // whenever Stremio writes a newer save (roughly every three minutes), so a
+  // seek made inside Stremio can take that long to appear here.
+  readonly property bool isStremioPlayer: activePlayer
+    ? MediaModel.sourceName(activePlayer) === "Stremio"
+    : false
+  readonly property string stremioImdbId: {
+    if (!root.isStremioPlayer || !activePlayer) return ""
+    var meta = activePlayer.metadata || {}
+    var raw = String(activePlayer.trackArtUrl || meta["mpris:artUrl"] || meta["xesam:artUrl"] || "")
+    var match = raw.match(/(tt\d{6,})/)
+    return match ? match[1] : ""
+  }
+  readonly property string stremioRawTitle: {
+    if (!root.isStremioPlayer || !activePlayer) return ""
+    var meta = activePlayer.metadata || {}
+    return String(activePlayer.trackTitle || meta["xesam:title"] || root.title || "")
+  }
+  // Stremio labels series episodes "Name (4x1)" over MPRIS; accept the common
+  // S4E1 spelling too so a different Stremio build still matches its state.
+  readonly property var stremioEpisodeTag: {
+    var text = root.stremioRawTitle
+    var match = text.match(/\((\d{1,3})\s*[xX]\s*(\d{1,4})\)/)
+      || text.match(/\bS(\d{1,3})\s*[Ee](\d{1,4})\b/)
+    return match ? [Number(match[1]), Number(match[2])] : null
+  }
+  readonly property int stremioSeason: root.stremioEpisodeTag ? root.stremioEpisodeTag[0] : -1
+  readonly property int stremioEpisode: root.stremioEpisodeTag ? root.stremioEpisodeTag[1] : -1
+  readonly property string stremioSourceKey: {
+    if (!root.isStremioPlayer || !root.stremioImdbId) return ""
+    return root.stremioImdbId + "|" + root.stremioSeason + "|" + root.stremioEpisode
+  }
+  readonly property string stremioStateScript: String(Qt.resolvedUrl("scripts/stremio_state.py")).replace(/^file:\/\//, "")
+  // Latest saved state for the current video: { duration, savedPosition,
+  // position, savedAt }. `position` is the value seeded at stremioAnchorMs;
+  // the 250ms timeline timer adds elapsed playback time from there.
+  property var stremioState: null
+  property double stremioAnchorMs: 0
+  // Stremio reports CanSeek=false, so its timeline is display-only.
+  readonly property bool timelineSeekable: !root.isStremioPlayer
+
   readonly property real trackLength: {
+    if (root.isStremioPlayer) {
+      var stremio = root.stremioState
+      if (!stremio) return 0
+      var saved = Number(stremio.duration)
+      return isFinite(saved) && saved > 0 ? saved : 0
+    }
     var value = activePlayer && Number(activePlayer.length)
     if (!isFinite(value) || value <= 0) return 0
     return value > 1000000 ? value / 1000000 : value
   }
   property real trackPosition: 0
   readonly property real trackProgress: trackLength > 0 ? Math.max(0, Math.min(1, trackPosition / trackLength)) : 0
+
+  function resetStremioTimeline() {
+    root.stremioState = null
+    root.stremioAnchorMs = 0
+  }
+
+  function refreshStremioState() {
+    var key = root.stremioSourceKey
+    if (!key) {
+      root.resetStremioTimeline()
+      if (stremioStateProc.running) {
+        root.stremioFetchIgnoreExit = true
+        stremioStateProc.running = false
+      }
+      return
+    }
+    if (stremioStateProc.running) {
+      if (root.stremioFetchKey === key) return
+      // Process.running = false only terminates the old python3; its exited
+      // signal still fires, so ignore exactly that stale result.
+      root.stremioFetchIgnoreExit = true
+      stremioStateProc.running = false
+    }
+    var command = ["python3", root.stremioStateScript, "--imdb", root.stremioImdbId]
+    if (root.stremioSeason >= 0 && root.stremioEpisode >= 0) {
+      command.push("--season", String(root.stremioSeason))
+      command.push("--episode", String(root.stremioEpisode))
+    }
+    root.stremioFetchKey = key
+    root.stremioFetchIgnoreExit = false
+    stremioStateProc.command = command
+    stremioStateProc.running = true
+  }
+
+  function applyStremioState(payload) {
+    var previous = root.stremioState
+    var duration = payload ? Number(payload.duration) / 1000 : 0
+    var savedPosition = payload ? Number(payload.position) / 1000 : 0
+    var savedAt = payload ? Number(payload.savedAt) : 0
+    if (!isFinite(duration) || duration <= 0
+        || !isFinite(savedPosition) || savedPosition < 0) {
+      root.resetStremioTimeline()
+      root.trackPosition = 0
+      return
+    }
+    savedPosition = Math.min(savedPosition, duration)
+
+    // Stremio did not write a new save since the last poll. Keep the local
+    // estimate: it advances with the clock and survives pauses without
+    // re-adding wall time from an unchanged save timestamp.
+    if (previous && previous.savedAt === savedAt
+        && previous.savedPosition === savedPosition
+        && previous.duration === duration) {
+      if (!root.stremioAnchorMs) root.stremioAnchorMs = Date.now()
+      return
+    }
+
+    // New save: start from the saved position plus the time already played
+    // since Stremio wrote it, then let the local anchor take over.
+    var position = savedPosition
+    if (root.isPlaying && isFinite(savedAt) && savedAt > 0) {
+      position = Math.min(duration, position + Math.max(0, Date.now() - savedAt) / 1000)
+    }
+    root.stremioState = {
+      duration: duration,
+      savedPosition: savedPosition,
+      position: position,
+      savedAt: savedAt
+    }
+    root.stremioAnchorMs = Date.now()
+    root.trackPosition = position
+    root.reseedPositionSync(position)
+  }
 
   // Local position estimate, fed by MediaModel.samplePosition: the raw MPRIS
   // sample is frozen for players that never announce Position changes (Chrome,
@@ -424,6 +562,19 @@ BarWidget {
       positionSync = { position: 0, reported: -1, sampleMs: 0 }
       return
     }
+    if (root.isStremioPlayer) {
+      if (!root.stremioState) {
+        root.trackPosition = 0
+        return
+      }
+      var elapsed = root.isPlaying
+        ? Math.max(0, Date.now() - root.stremioAnchorMs) / 1000
+        : 0
+      var estimate = root.stremioState.position + elapsed
+      if (root.trackLength > 0) estimate = Math.min(estimate, root.trackLength)
+      root.trackPosition = Math.max(0, estimate)
+      return
+    }
     // Track switch: start over from zero instead of seeding from the previous
     // track's frozen end position, which would park the bar at 100%.
     var signature = MediaModel.trackSignature(activePlayer)
@@ -441,7 +592,7 @@ BarWidget {
   }
 
   function seekTrack(progress) {
-    if (!activePlayer || trackLength <= 0) return
+    if (!root.timelineSeekable || !activePlayer || trackLength <= 0) return
     var position = Math.max(0, Math.min(trackLength, progress * trackLength))
     // The local trackPosition is only an estimate, and it does not advance while
     // the popup is closed - for players that never announce Position changes
@@ -474,6 +625,44 @@ BarWidget {
     running: root.popupOpen && root.activePlayer
     repeat: true
     onTriggered: root.syncTrackPosition()
+  }
+
+  // Stremio's own saves land every few minutes; poll only while the panel is
+  // open so a new save (or a seek made inside Stremio) is eventually picked up
+  // without leaving a helper process running in the background.
+  Timer {
+    interval: 20000
+    running: root.popupOpen && root.isStremioPlayer && root.stremioSourceKey !== ""
+    repeat: true
+    onTriggered: root.refreshStremioState()
+  }
+
+  property string stremioFetchKey: ""
+  property bool stremioFetchIgnoreExit: false
+
+  Process {
+    id: stremioStateProc
+    stdout: StdioCollector {
+      id: stremioStateOutput
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      if (root.stremioFetchIgnoreExit) {
+        root.stremioFetchIgnoreExit = false
+        return
+      }
+      // A newer video replaced this lookup while python3 was still running.
+      if (root.stremioFetchKey !== root.stremioSourceKey) return
+      // Exit 1 means Stremio has not saved a state for this video yet (it
+      // writes one shortly after playback starts) or the database could not
+      // be read; leaving the timeline empty is honest, and the next poll
+      // retries. A track change already cleared the previous video's state.
+      if (exitCode !== 0) return
+      var payload = null
+      try { payload = JSON.parse(stremioStateOutput.text || "") }
+      catch (error) { payload = null }
+      root.applyStremioState(payload)
+    }
   }
 
   function sourceBadgeColor(player) {
@@ -595,6 +784,137 @@ BarWidget {
     }
   }
 
+  // The synced-lyrics widget only asks LRCLIB after it is opened, and this
+  // widget cannot read another plugin's state. Probe LRCLIB here as well so the
+  // popup only offers lyrics for tracks that actually resolve to a record; a
+  // mic button that opens an empty panel is a dead end.
+  // requestKey -> { available, at }. A hit lasts the session; a miss expires so
+  // an LRCLIB outage cannot hide the button for a song that does have lyrics.
+  property var lyricsAvailabilityCache: ({})
+  property string lyricsProbeKey: ""
+  property string lyricsProbeStage: ""
+  property var lyricsProbeCandidates: []
+  property var lyricsProbeFallback: null
+  property bool lyricsProbeIgnoreExit: false
+  readonly property string lyricsTrackKey: root.artist + "\n" + root.title
+  readonly property bool lyricsAvailable: {
+    var entry = root.lyricsAvailabilityCache[root.lyricsTrackKey]
+    return Boolean(entry && entry.available === true)
+  }
+
+  function setLyricsAvailability(available) {
+    var key = root.lyricsProbeKey
+    if (!key) return
+    var cache = Object.assign({}, root.lyricsAvailabilityCache)
+    cache[key] = { available: available === true, at: Date.now() }
+    root.lyricsAvailabilityCache = cache
+  }
+
+  function probeLyricsAvailability() {
+    if (!root.title || !root.activePlayer) return
+    var key = root.lyricsTrackKey
+    var cached = root.lyricsAvailabilityCache[key]
+    if (cached && (cached.available === true || Date.now() - cached.at < 300000)) return
+    if (root.lyricsProbeKey === key && lyricsProbeProc.running) return
+    root.lyricsProbeKey = key
+    root.lyricsProbeStage = ""
+    root.lyricsProbeFallback = null
+    root.lyricsProbeCandidates = MediaModel.lyricsQueryCandidates(root.title)
+    root.beginLyricsProbe("get")
+  }
+
+  function beginLyricsProbe(stage) {
+    var url = ""
+    if (stage === "get") {
+      root.lyricsProbeStage = "get"
+      url = "https://lrclib.net/api/get?artist_name=" + encodeURIComponent(root.artist)
+        + "&track_name=" + encodeURIComponent(root.title)
+    } else {
+      var next = root.lyricsProbeCandidates.length > 0 ? root.lyricsProbeCandidates.shift() : ""
+      if (next) {
+        root.lyricsProbeStage = "search"
+        url = "https://lrclib.net/api/search?track_name=" + encodeURIComponent(next)
+      } else {
+        // The companion falls back to the exact record even when its length
+        // disagrees with the playing track, so count that as available too.
+        root.setLyricsAvailability(root.lyricsProbeFallback !== null)
+        return
+      }
+    }
+    if (lyricsProbeProc.running) {
+      // Process.running = false only terminates the old curl; it still emits
+      // exited, and that stale exit would otherwise be attributed to this
+      // request. Ignore exactly that one exit.
+      root.lyricsProbeIgnoreExit = true
+      lyricsProbeProc.running = false
+    }
+    // Same request shape as the lyrics companion, so both widgets agree on
+    // which tracks LRCLIB can serve.
+    lyricsProbeProc.command = [
+      "curl", "-fsSL", "--max-time", "8", "--proto", "=https",
+      "--max-filesize", "2097152",
+      "-A", "Tide/1.0 (Omarchy shell bar widget)",
+      "--retry", "2", "--retry-delay", "1", "--retry-max-time", "12",
+      url
+    ]
+    lyricsProbeProc.running = true
+  }
+
+  Process {
+    id: lyricsProbeProc
+    stdout: StdioCollector {
+      id: lyricsProbeOutput
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      // Exit of a curl this widget cancelled (track changed mid-request).
+      if (root.lyricsProbeIgnoreExit) {
+        root.lyricsProbeIgnoreExit = false
+        return
+      }
+      // A newer track replaced this lookup while curl was still running.
+      if (root.lyricsProbeKey !== root.lyricsTrackKey) return
+
+      var payload = null
+      if (exitCode === 0) {
+        try { payload = JSON.parse(lyricsProbeOutput.text || "") }
+        catch (error) { payload = null }
+      }
+
+      if (root.lyricsProbeStage === "get") {
+        var record = (payload && typeof payload === "object" && !Array.isArray(payload)) ? payload : null
+        var hasText = record && (String(record.syncedLyrics || "").trim() !== ""
+          || String(record.plainLyrics || "").trim() !== "")
+        if (hasText) {
+          var duration = Number(record.duration)
+          var aligned = root.trackLength <= 0 || !isFinite(duration) || duration <= 0
+            || Math.abs(duration - root.trackLength) <= 5
+          if (aligned) { root.setLyricsAvailability(true); return }
+          // Mismatched cut: the companion keeps it as a last-resort fallback
+          // while searching for a better one, so this track still counts.
+          root.lyricsProbeFallback = record
+        }
+        root.beginLyricsProbe("search")
+        return
+      }
+
+      // Search stage: any candidate carrying lyrics is enough for the button,
+      // regardless of duration ranking (the companion ranks, never discards
+      // text-carrying records entirely).
+      var records = Array.isArray(payload) ? payload : []
+      for (var i = 0; i < records.length; i++) {
+        var candidate = records[i]
+        if (!candidate) continue
+        if (String(candidate.syncedLyrics || "").trim() !== ""
+            || String(candidate.plainLyrics || "").trim() !== "") {
+          root.setLyricsAvailability(true)
+          return
+        }
+      }
+      root.beginLyricsProbe("search")
+    }
+  }
+
   readonly property string artworkSource: root.artUrl !== ""
     ? root.artUrl
     : "file://" + root.artworkCachePath
@@ -611,7 +931,38 @@ BarWidget {
   // The timer stops while the popup is closed, so the estimator's clock is
   // stale on reopen: reseed from the last known position, otherwise the whole
   // closed interval would be added back in one jump.
-  onPopupOpenChanged: if (popupOpen) reseedPositionSync(trackPosition)
+  onPopupOpenChanged: {
+    if (!popupOpen) {
+      // Never leave an in-flight state lookup running for a closed panel.
+      if (stremioStateProc.running) {
+        root.stremioFetchIgnoreExit = true
+        stremioStateProc.running = false
+      }
+      return
+    }
+    probeLyricsAvailability()
+    if (root.isStremioPlayer) {
+      // The saved position may be minutes (or hours) older than the last
+      // close, and the local lock is gone, so start from a fresh snapshot
+      // instead of extrapolating from a stale anchor.
+      root.resetStremioTimeline()
+      root.trackPosition = 0
+      root.refreshStremioState()
+    } else {
+      reseedPositionSync(trackPosition)
+    }
+  }
+  // Track changes while the panel is open must re-check the new song; while it
+  // is closed the probe runs on the next open instead of hitting LRCLIB for
+  // every song the bar merely displays.
+  onLyricsTrackKeyChanged: if (root.popupOpen) root.probeLyricsAvailability()
+  // A Stremio episode change (or Stremio stopping) invalidates the saved
+  // timeline; hide it until the new video's own state resolves.
+  onStremioSourceKeyChanged: {
+    root.resetStremioTimeline()
+    root.trackPosition = 0
+    if (root.popupOpen && root.stremioSourceKey) root.refreshStremioState()
+  }
   property bool isMinimized: false
   function close() { popupOpen = false }
   property real maxLabelWidth: 220
@@ -1359,8 +1710,9 @@ BarWidget {
 
           MouseArea {
             anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
+            cursorShape: root.timelineSeekable ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: function(mouse) {
+              if (!root.timelineSeekable) return
               root.seekTrack(Math.max(0, Math.min(1, mouse.x / width)))
             }
           }
@@ -1408,13 +1760,15 @@ BarWidget {
 
         // Lyrics opens the synced-lyrics panel; pinned to the right edge
         // to mirror the volume button on the left. Borderless like the
-        // other secondary controls.
+        // other secondary controls. Hidden unless LRCLIB actually has lyrics
+        // for the current track (see probeLyricsAvailability), so it can never
+        // open a panel that only says "No lyrics".
         TransportButton {
           anchors.right: parent.right
           glyph: ""
           glyphIcon: Qt.resolvedUrl("lyrics-mic.svg")
           bordered: false
-          enabled: Boolean(root.activePlayer && root.title)
+          visible: root.lyricsAvailable
           onActivated: root.openLyrics()
         }
 

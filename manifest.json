@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.elliotalien.tide",
   "name": "Tide",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Elliot",
   "license": "MIT",
   "description": "A PipeWire-reactive bar visualizer and media controller: flowing wave modes, floating player, source switching, per-app volume, and the companion Tide Lyrics widget.",
