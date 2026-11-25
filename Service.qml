@@ -123,11 +123,15 @@ Item {
   // and passed as a positional arg after "--" (never interpolated into the
   // script text) - the same pattern the artwork-fetch process above uses for
   // untrusted-ish values.
-  // Capturing a playback *stream* node with pw-record is not usable on this
-  // system: it returns one loud buffer and then near-silence (~0.006 peak while
-  // music is audibly playing), which is exactly the flat floor this fallback
-  // exists to avoid. The default sink's monitor reads the real level (~0.27), so
-  // capture that instead; the stream node is only a last resort.
+  // The flat ~0.006 floor seen here (one loud buffer, then near-silence while
+  // music is audibly playing) was NOT a property of the stream node: it is what
+  // pw-record returns for any --target without stream.capture.sink=true, which
+  // is required to attach the capture to the target's *monitor* ports rather
+  // than to the node itself. Measured live on this system with the property
+  // set: sink node ~0.20-0.29, Spotify stream node ~0.40 - both reactive. Do
+  // not drop that property from the command below or the visualizer goes flat
+  // again. The default sink is still preferred as the target because it mixes
+  // every stream of the player; the stream node is a last resort.
   readonly property var fallbackPeakTargetNode: {
     var sink = root.audioSink
     if (sink && sink.id !== undefined && sink.id !== null) return sink
@@ -166,7 +170,7 @@ Item {
     // foreground-python3 design.
     fallbackPeakProc.command = [
       "bash", "-c",
-      "set -uo pipefail; NODE_ID=\"$1\"; if ! [[ \"$NODE_ID\" =~ ^[0-9]+$ ]]; then exit 1; fi; set -m; pw-record --target=\"$NODE_ID\" -P '{ format=s16 rate=44100 channels=2 }' - 2>/dev/null | python3 -u -c '\nimport struct, sys\nwhile True:\n    data = sys.stdin.buffer.read(4096)\n    if not data:\n        break\n    n = len(data) // 2\n    if n == 0:\n        continue\n    samples = struct.unpack(\"<\" + str(n) + \"h\", data[:n * 2])\n    peak = max(abs(s) for s in samples) / 32768.0\n    print(\"%.4f\" % peak, flush=True)\n' & JOB_PID=$!; trap 'kill -TERM -- \"-$JOB_PID\" 2>/dev/null' EXIT TERM INT; wait \"$JOB_PID\"",
+      "set -uo pipefail; NODE_ID=\"$1\"; if ! [[ \"$NODE_ID\" =~ ^[0-9]+$ ]]; then exit 1; fi; set -m; pw-record --target=\"$NODE_ID\" -P '{ stream.capture.sink=true format=s16 rate=44100 channels=2 }' - 2>/dev/null | python3 -u -c '\nimport struct, sys\nwhile True:\n    data = sys.stdin.buffer.read(4096)\n    if not data:\n        break\n    n = len(data) // 2\n    if n == 0:\n        continue\n    samples = struct.unpack(\"<\" + str(n) + \"h\", data[:n * 2])\n    peak = max(abs(s) for s in samples) / 32768.0\n    print(\"%.4f\" % peak, flush=True)\n' & JOB_PID=$!; trap 'kill -TERM -- \"-$JOB_PID\" 2>/dev/null' EXIT TERM INT; wait \"$JOB_PID\"",
       "--",
       String(nodeId)
     ]
