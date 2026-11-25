@@ -28,7 +28,18 @@ BarWidget {
     // Secondary buttons can opt out of the outline (e.g. prev/next are shown
     // as bare glyphs); primary is always borderless.
     property bool bordered: true
+    // Latched "on" state, e.g. the lyrics mic while its panel is showing.
+    property bool active: false
     signal activated()
+
+    // Icon state tokens. Colour alone is not enough to carry on/off: several
+    // Omarchy themes set accent == foreground (the shipped default does), so
+    // the two states would be pixel-identical. Opacity does the heavy lifting
+    // and the accent is the bonus signal on themes that have a distinct one.
+    readonly property bool hasIcon: glyphIcon.length > 0 && transportIcon.status === Image.Ready
+    readonly property color iconColor: transportButton.active ? Color.accent : popup.fg
+    readonly property real iconOpacity: transportButton.active ? 1.0
+      : (transportHover.containsMouse ? 0.75 : 0.4)
 
     width: primary ? Style.space(42) : Style.space(32)
     height: width
@@ -44,23 +55,51 @@ BarWidget {
 
     Behavior on color { ColorAnimation { duration: 140 } }
 
-    // SVG icon when provided (original app artwork, tinted to the button's
-    // text colour); the font glyph only renders when the image can't load.
+    // SVG icon when provided; the font glyph only renders when the image
+    // can't load. The artwork is drawn only as an alpha mask and every pixel
+    // of colour comes from iconColor. It used to be rendered directly - the
+    // old comment here claimed it was "tinted to the button's text colour",
+    // but nothing tinted it, so lyrics-mic.svg's hard-coded fill="#ffffff"
+    // reached the screen as-is: invisible on a light theme and incapable of
+    // showing any state.
     Image {
       id: transportIcon
       anchors.centerIn: parent
       source: transportButton.glyphIcon
-      visible: transportButton.glyphIcon.length > 0 && status === Image.Ready
+      // Hidden as a texture source only; the masked Rectangle below is what
+      // actually gets painted.
+      visible: false
       fillMode: Image.PreserveAspectFit
       sourceSize.width: Math.round(width * Screen.devicePixelRatio)
       sourceSize.height: Math.round(height * Screen.devicePixelRatio)
       width: transportButton.iconExtent
       height: width
+      layer.enabled: transportButton.hasIcon
+    }
+
+    // Paint iconColor through the artwork's alpha - the same approach the
+    // shell's tray uses for symbolic icons. MultiEffect's `colorization`
+    // would be the obvious alternative but it preserves source lightness,
+    // which keeps a white mic white however it is tinted.
+    Rectangle {
+      anchors.fill: transportIcon
+      visible: transportButton.hasIcon
+      color: transportButton.iconColor
+      opacity: transportButton.iconOpacity
+      Behavior on color { ColorAnimation { duration: 160 } }
+      Behavior on opacity { NumberAnimation { duration: 160 } }
+      layer.enabled: transportButton.hasIcon
+      layer.effect: MultiEffect {
+        maskEnabled: true
+        maskSource: transportIcon
+        maskThresholdMin: 0.5
+        maskSpreadAtMin: 1.0
+      }
     }
 
     Text {
       anchors.centerIn: parent
-      visible: !transportIcon.visible
+      visible: !transportButton.hasIcon
       text: transportButton.glyph
       textFormat: Text.PlainText
       color: transportButton.primary ? Color.background : popup.fg
@@ -211,6 +250,14 @@ BarWidget {
     target: "flow"
 
     function ping(): string { return "ok" }
+
+    // Pushed by the lyrics companion whenever its panel opens or closes,
+    // including its own auto-close. See lyricsPanelOpen below for why the
+    // state has to travel this way rather than being read directly.
+    function setLyricsOpen(value: string): string {
+      root.lyricsPanelOpen = (value === "true" || value === "1")
+      return "ok"
+    }
 
     function getMode(): string { return root.visualizerMode }
 
@@ -675,7 +722,36 @@ BarWidget {
 
   function openLyrics() {
     if (!root.title || !root.activePlayer) return
-    Quickshell.execDetached(["omarchy-shell", "io.github.elliotalien.tide-lyrics", "toggle"])
+    Quickshell.execDetached(["omarchy-shell", root.lyricsModuleName, "toggle"])
+  }
+
+  // Whether the lyrics panel is currently showing, used to light the mic.
+  //
+  // This cannot be read from the panel directly. It is a separate plugin, and
+  // the bar host deliberately scopes its widget lookup to the calling plugin:
+  //
+  //   _moduleWidgets: function(requestedId) {
+  //     return String(requestedId || "") === String(moduleName || "")
+  //       ? root.moduleWidgets(moduleName) : []
+  //   }                                    - plugins/bar/Bar.qml
+  //
+  // so bar.moduleWidgets("...tide-lyrics") returns [] here (verified live).
+  // The companion therefore pushes its state to us instead, over the same
+  // omarchy-shell IPC we use to toggle it - see setLyricsOpen in the flow
+  // handler above, and reportLyricsState in the companion.
+  //
+  // Mirroring our own clicks into this bool instead would drift out of sync:
+  // the panel closes itself on a 1.6s timer when LRCLIB has nothing for the
+  // track, which would strand a lit mic over a panel that is already gone.
+  readonly property string lyricsModuleName: "io.github.elliotalien.tide-lyrics"
+  property bool lyricsPanelOpen: false
+
+  // Pushes only arrive while both widgets are alive, so a hot reload of this
+  // file can leave the bool stale. Ask for a fresh report whenever the player
+  // popup opens - that is the only time the mic is on screen, and the popup
+  // already does heavier work (an LRCLIB probe) on the same signal.
+  function requestLyricsReport() {
+    Quickshell.execDetached(["omarchy-shell", root.lyricsModuleName, "report"])
   }
 
   readonly property bool hasMedia: activePlayer !== null && (Boolean(title) || Boolean(isPlaying) || Boolean(activePlayer.trackTitle || activePlayer.trackArtist))
@@ -941,6 +1017,7 @@ BarWidget {
       return
     }
     probeLyricsAvailability()
+    requestLyricsReport()
     if (root.isStremioPlayer) {
       // The saved position may be minutes (or hours) older than the last
       // close, and the local lock is gone, so start from a fresh snapshot
@@ -1768,6 +1845,7 @@ BarWidget {
           glyph: ""
           glyphIcon: Qt.resolvedUrl("lyrics-mic.svg")
           bordered: false
+          active: root.lyricsPanelOpen
           visible: root.lyricsAvailable
           onActivated: root.openLyrics()
         }

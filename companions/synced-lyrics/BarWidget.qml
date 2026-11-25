@@ -112,10 +112,40 @@ BarWidget {
     lyricsOpen = !lyricsOpen
   }
 
+  // Tell Tide whether the panel is showing, so it can light its mic icon.
+  // Tide cannot read this widget's state itself: the bar host scopes
+  // moduleWidgets() to the calling plugin, so a cross-plugin lookup comes
+  // back empty by design. Pushing over omarchy-shell IPC is the same channel
+  // Tide already uses to toggle us, just pointed the other way.
+  //
+  // Driven by onLyricsOpenChanged rather than from toggleLyrics(), so the
+  // 1.6s no-lyrics auto-close below reports itself too - that path never goes
+  // through a toggle and would otherwise leave Tide's mic lit over a panel
+  // that has already folded away.
+  //
+  // A bar surface exists per monitor, so every instance sees the change. Only
+  // the first reports, otherwise a multi-monitor setup spawns one process per
+  // screen for a single toggle.
+  function reportLyricsState() {
+    var peers = (bar && typeof bar.moduleWidgets === "function")
+      ? bar.moduleWidgets(moduleName) : []
+    if (peers.length > 1 && peers[0] !== root) return
+    Quickshell.execDetached(["omarchy-shell", "flow", "setLyricsOpen",
+      root.lyricsOpen ? "true" : "false"])
+  }
+
   IpcHandler {
     target: "io.github.elliotalien.tide-lyrics"
     function toggle(): string {
       root.broadcast("toggleLyrics")
+      return "ok"
+    }
+
+    // Re-announce the current state. Tide asks for this when its player popup
+    // opens, so a hot reload of either plugin cannot leave the mic icon stuck
+    // on a state that is no longer true.
+    function report(): string {
+      root.broadcast("reportLyricsState")
       return "ok"
     }
 
@@ -338,7 +368,10 @@ BarWidget {
     root.beginExactLookup()
   }
 
-  onLyricsOpenChanged: if (lyricsOpen) loadLyrics(false)
+  onLyricsOpenChanged: {
+    if (lyricsOpen) loadLyrics(false)
+    reportLyricsState()
+  }
   onTitleChanged: if (lyricsOpen) loadLyrics(true)
   onArtistChanged: if (lyricsOpen) loadLyrics(true)
 
